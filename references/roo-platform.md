@@ -1,19 +1,25 @@
 # Roo Code 平台调用方法
 
-> 平台说明只在本会话首次进入团队模式时加载一次。Roo Code 是 VS Code 插件，用 modes + 异步 subagent。
+> 本会话只读一次。Roo Code 是 VS Code 插件，用 **modes** 做角色、**异步子任务**做并行。
 
-## 识别
-你在 VS Code 的 Roo Code 插件内，使用自定义 mode 作为 orchestrator，配合 subagent。
+## 现实约束
 
-## 子代理派生（配置式 + mode）
-- 用 **modes** 定义角色（Architect / Code / QA…），角色 persona 写在对应 mode 的 system prompt 里（取自 `roles/*.md`）。
-- 用 `[subagent]` 异步子代理：orchestrator mode 派生 subagent，异步跑完回收结果。
+- 角色 = mode：把 `roles/<角色>.md` 的 Persona 写进对应 mode 的 custom instructions（Architect / Code / Debug / 自定义 QA）。
+- 派发 = 用户在 GUI 里切 mode / 起新任务；agent 自己**不能用代码**创建另一个 agent。
+- 异步子任务（如果有）由插件的任务系统管理，不是模型可调用的函数。
 
-## 并行
-- 可派生多个异步 subagent 并行，orchestrator 汇总。
+## 怎么做
 
-## 问用户
-Roo 的 GUI 审批。
+1. 主 agent 输出**模式切换卡**：`用哪个 mode` + `贴什么 prompt` + `写域` + `产物格式`。
+2. 用户按卡操作，把结果贴回。
+3. 验收与修复同样出卡，由用户派发；修复卡必须附上一轮问题清单。
+4. 并行：多个任务同时跑时，**在卡里预先划分写域**，否则会互相覆盖。
 
-## 说明
-Roo 的架构和团队模式天然契合（Architect mode 派活给 Code mode 就是"主 agent 调度"），但操作在 GUI 里发生。
+## 不要做的事
+
+- 不要引用不存在的函数名（没有 `roo_spawn`、没有 `subagent()` 可直接调）。
+- 不要在没有隔离的情况下让两个 mode 实例改同一文件。
+
+## 降级
+
+用户不想手动切 → 主 agent 单人以"角色轮换"方式连续执行，并在每段开头写明"当前扮演：<角色>"，报告里标注这是降级执行。

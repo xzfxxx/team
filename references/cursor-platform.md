@@ -1,20 +1,31 @@
 # Cursor 平台调用方法
 
-> 平台说明只在本会话首次进入团队模式时加载一次。Cursor 是 GUI IDE + 后台 agent。
+> 本会话只读一次。Cursor 是 IDE + 后台 agent，**agent 自己无法用代码派发另一个 agent**。
 
-## 识别
-你在 Cursor 编辑器内运行，通过 GUI 派发 subagent（后台/隔离 checkout）。
+## 现实约束
 
-## 子代理派生（GUI 为主）
-- 通过 Cursor 界面派发后台 subagent，每个 subagent 在**独立 checkout / 沙箱**里工作，互不污染。
-- 把角色 persona（`roles/*.md` 的 `【Persona】`）作为 subagent 的 instruction。
+- 后台 agent 由**用户在 GUI 里**创建、指派任务、回收结果；在会话里"调用一个子代理函数"这条路不存在。
+- 因此本 skill 在 Cursor 上只能做**半自动编排**：主 agent 负责拆任务、写 prompt、写验收标准；派发和回收由用户点。
 
-## 并行
-- 可一次派发多个后台 agent 并行跑，结果流式回收。
-- 主 agent（orchestrator）负责拆分任务、汇总各 agent 结果。
+## 怎么做
 
-## 问用户
-Cursor 的 GUI 审批 / 确认对话框。
+1. 主 agent 输出**派发卡**（用户可复制粘贴到新 chat）：
+   ```
+   【角色】开发工程师（persona 见下）
+   【任务】……
+   【写域】src/.../**
+   【产物】结论 + 证据（命令/输出）+ 未决项
+   【禁止】改写域外文件、git push
+   ```
+2. 用户把卡贴进新建的后台 agent，跑完把结果贴回来。
+3. 主 agent 负责验收编排：把问题清单整理成下一张卡，仍由用户派发。
+4. 需要并行 → 开多个后台 agent，**提前在卡里划分写域**（Cursor 的隔离 checkout 行为因版本而异，不确定就串行）。
 
-## 说明
-Cursor 是 IDE 内的 agent，编排更依赖 GUI；代码级自动编排不如 DSH/Claude 自由，适合"派发-回收"式分工。
+## 不要做的事
+
+- 不要假装能自动 spawn、自动回收；不要引用 `Task` / `subagent` 之类不存在的函数。
+- 不要在没确认隔离能力时让两个 agent 改同一批文件。
+
+## 降级
+
+如果用户不想手动派发：直接由主 agent 单人按角色顺序执行，并说明"当前环境没有程序化派发能力，已降级为单 agent 分角色执行"。

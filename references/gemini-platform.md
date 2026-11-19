@@ -1,22 +1,25 @@
 # Gemini CLI 平台调用方法
 
-> 平台说明只在本会话首次进入团队模式时加载一次。仅包含 Gemini CLI 区别于 DSH/Claude 的"子代理调用方式"。
+> 本会话只读一次。**本文件的能力未经实测**，标记「待验证」的条目在确认前不得当作可用。
 
-## 识别
-你的环境里有 `gemini` CLI，子代理在 `AGENTS.md` 里用 `[subagent]` 声明。
+## 已确认可用
 
-## 子代理定义（配置式）
-在仓库根 `AGENTS.md` 里声明（支持 tools / model / prompt）：
-```
-[subagent name="dev"]
-description: 开发工程师：实现代码+单测
-prompt: "<开发工程师 persona> ..."
-tools: [...]
-```
+- `gemini -p "<prompt>"`：非交互执行一次性任务。
+- 仓库根的 `GEMINI.md` / `AGENTS.md`：放指令与约定，作为上下文读取。
 
-## 派生与并行
-- 主 agent 按名字派生 subagent，可**并行**运行多个 subagent。
-- 每个 subagent 拿到独立的 prompt + 上下文。
+## 待验证（不要假设）
 
-## 问用户
-交互式确认；需要拍板的地方直接输出确认清单。
+- ❌ 没有证据表明 `AGENTS.md` 支持 `[subagent name=...]` 配置块。旧文档里的写法是臆测，**确认前不要用**。
+- ❌ 是否有并行子代理、能否按名字派活，取决于版本与扩展；不确定时按"没有"处理。
+
+## 降级方案（默认走这个）
+
+1. **角色 = 提示词**：把 `roles/<角色>.md` 的 Persona 拼进 `gemini -p` 的 prompt，一次一个角色，串行。
+2. **并行**：用 `git worktree` 隔离出独立目录，再并发多个 `gemini -p "<prompt>"` 进程（每个进程先 `cd` 到自己的 worktree）；没有 worktree 就串行。
+3. **修复轮次**：每次新进程，附完整上下文（上一轮结论 + 问题清单 + 位置）。
+4. **用户确认**：headless 模式没有提问通道，由主 agent 汇总问题问用户，答案写进下一条 prompt。
+
+## 汇报
+
+- 只拿 stdout；要求输出固定三段：结论 / 证据 / 未决项。
+- 没有续聊、没有共享任务板、没有 `log()`。

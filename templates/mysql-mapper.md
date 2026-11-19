@@ -1,36 +1,59 @@
-# 模板：MySQL 表结构 → MyBatis 映射生成（mysql-mapper）
+# 模板：MySQL 建表 + MyBatis 映射（mysql-mapper）
 
-> 适用：MySQL（非 HANA）场景下，从零建表 + 依据表结构元数据生成 Entity / Mapper 接口 / Mapper XML。
-> 触发词：MySQL 建表、MyBatis 映射生成、表结构落地、数据访问层搭建。
-> ⚠️ 本模板与 `data-mapper.md`（HANA + gen-mapper 工具）互斥：**MySQL 无 gen-mapper 可用**，必须由数据库工程师读 MySQL 元数据手工生成映射。
+> MySQL 场景：从零建表，再按元数据生成 Entity / Mapper 接口 / Mapper XML。
+> 触发：MySQL 建表、MyBatis 映射生成、表结构落地、数据访问层搭建。
 
-## 与 data-mapper 的关键差异
+## 适用 / 不适用
 
-| 维度 | data-mapper（HANA） | mysql-mapper（MySQL） |
+- ✅ MySQL 8：从零建表 → 按元数据手写 Entity / Mapper 接口 / XML
+- ✅ 没有 `gen-mapper`、需要落数据访问层的场景
+- ❌ HANA 或环境里有 `gen-mapper` → `data-mapper`
+- ❌ 只做查询分析、不动结构 → `research-query`
+
+## 与 data-mapper 的互斥
+
+| 维度 | data-mapper（HANA） | mysql-mapper（本模板） |
 |------|---------------------|------------------------|
-| 建表脚本 | HANA 语法（注意注释/类型差异） | MySQL 8 DDL，可 DROP+CREATE 重跑 |
-| 映射来源 | gen-mapper 工具生成 | **读元数据**：`SHOW CREATE TABLE` / `DESCRIBE` / `INFORMATION_SCHEMA.COLUMNS` / `INFORMATION_SCHEMA.STATISTICS` |
-| 校验手段 | 工具输出 | 自动化核对：COLUMNS ↔ resultMap ↔ 实体字段（javap 验证类型） |
-| 金额字段 | DECIMAL 通用 | `DECIMAL(18,2)` + CHECK 约束（MySQL 8.0.16+ 生效）；实体用 BigDecimal |
-| 索引验证 | EXPLAIN（HANA） | `EXPLAIN SELECT ...`（MySQL），确认 type/key 走索引 |
+| 前提 | 有 `gen-mapper` | **没有** gen-mapper，全部手写 |
+| 建表 | HANA DDL，谨慎 | MySQL 8 DDL，可 DROP+CREATE 重跑（需授权） |
+| 映射来源 | 工具生成 | `SHOW CREATE TABLE` / `DESCRIBE` / `INFORMATION_SCHEMA` |
+| 校验 | 工具输出 | COLUMNS ↔ resultMap ↔ 实体三方核对 |
+| 金额 | DECIMAL | `DECIMAL(18,2)` + CHECK（8.0.16+ 生效）；实体 `BigDecimal` |
+| 索引 | HANA EXPLAIN | `EXPLAIN SELECT`，确认 type/key |
 
-## 阶段序列
+**二选一，不要混着跑。**
 
-1. **数据库工程师**：设计 DDL（主键/唯一约束/索引/金额字段/CHECK）→ 执行建表 → 回读 `SHOW CREATE TABLE` 核对
-2. **数据库工程师**：按元数据生成 Entity / Mapper 接口 / XML（包结构与项目约定一致；禁 Lombok 时手写 getter/setter；金额 BigDecimal、时间 LocalDateTime、状态 String）
-3. **数据库工程师**：映射一致性三方核对（INFORMATION_SCHEMA ↔ resultMap ↔ 实体）+ EXPLAIN 关键查询走索引
-4. **架构师/主 agent**：确认 Mapper 契约（方法签名清单）→ 供下游 Service 开发契约驱动接入
-5. **质量工程师**：验收（映射一致、`#{}` 无 `${}`、只读 LIMIT、防 N+1）
+## 规模
 
-## 数据库工程师关键约定（写进 prompt）
+1 数据库 + 1 架构（可兼主 agent）+ 1 质量；开发仅在需要接 Service 时加入。
 
-- **只读元数据生成，不依赖任何生成器工具**；DDL 执行需调度明确授权（限定库/表清单）
-- SQL 全部 `#{}` 参数化，零 `${}`；单行查询带 `LIMIT 1`；列表查询（批量语义）显式注释豁免理由并约定调用方控制规模
-- 乐观锁：`UPDATE ... SET status=#{...}, version=version+1 WHERE id=? AND version=?`（返回影响行数）
-- 报表聚合：单条 SQL + `LIMIT #{offset},#{size}`；GROUP BY 用临时表/filesort 属预期，驱动条件必须走索引
-- 防 N+1 接口：`selectByXxxIds(List<Long>)` IN 查询（调用方判空，防 `IN ()` 语法错误）
-- 周期提醒：并发写文件场景（多子代理并行）遵守"只动自己包"边界，标注「预留」而非删除未用 API
+## 步骤序列
 
-## 沉淀案例
+| 步骤 | 角色 | 要点 | 写域 |
+|------|------|------|------|
+| 1 | 架构师/主 agent | 确认库、表清单、包结构、是否允许 DDL | 无 |
+| 2 | 数据库工程师 | 设计 DDL（主键/唯一/索引/金额/CHECK）→ **获授权后**执行 → 回读 `SHOW CREATE TABLE` 核对 | 迁移脚本目录 |
+| 3 | 数据库工程师 | 按元数据生成 Entity / Mapper 接口 / XML（禁 Lombok 时手写 getter/setter） | 实体与 Mapper 包 |
+| 4 | 数据库工程师 | 三方核对 + `EXPLAIN` 关键查询 | 同上 |
+| 5 | 质量工程师 | 验收（映射一致、`#{}` 无 `${}`、LIMIT、防 N+1） | 无 |
+| 6 | 主 agent | 报告 + 契约清单（方法签名 → 供 Service 接入） | `.team-mode/` |
 
-「订单中心」项目（T1 数据层）即按本模板执行：t_order/t_order_item/t_payment 三表 + 13 文件交付，EXPLAIN 全部走索引，映射一致性 ALL_MAPPING_CONSISTENT。
+## 数据库工程师的关键约定（写进 prompt）
+
+- 只读元数据生成，**不依赖生成器工具**；DDL 执行须调度明确授权（限库限表）
+- SQL 全部 `#{}`；单行查询带 `LIMIT 1`；列表查询显式注释豁免理由
+- 乐观锁：`UPDATE ... SET status=#{s}, version=version+1 WHERE id=#{id} AND version=#{v}`，返回影响行数
+- 报表聚合：单条 SQL + `LIMIT #{offset},#{size}`；驱动条件必须走索引
+- 防 N+1：`selectByXxxIds(List<Long>)` + 调用方判空（防 `IN ()` 语法错误）
+- 并行写文件时只动自己包，未用 API 标「预留」而非删除
+
+## DoD
+
+- DDL 可重复执行；回读结果与设计一致
+- 三方一致（附核对结果）
+- EXPLAIN 显示关键查询走索引
+- Mapper 方法签名清单已交给下游
+
+## 输出
+
+表结构、生成文件清单、映射一致性结论、索引验证结果、Service 接入契约。

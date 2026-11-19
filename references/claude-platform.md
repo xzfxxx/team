@@ -1,63 +1,42 @@
 # Claude Code 平台调用方法
 
-> 本文件是「平台检测 + 调用说明」的一部分，**只在本会话第一次进入团队模式时加载一次**。之后沿用会话标记，不再读取。
-> 仅包含 Claude 与 DSH 不同的"子代理调用方式"，角色人格模板两个平台完全复用。
+> 本会话只读一次。只写与 DSH 不同的部分，角色与流程见 `SKILL.md`。
 
-## Claude Code 子代理调用
+## 子代理入口
 
-### 单任务
+Claude Code 用**子代理工具**派活，不同版本叫 `Task` 或 `Agent`（参数相近：`description`、`prompt`，可能还有 `subagent_type` / `isolation`）。派活前先看当前可用工具名，**不要照抄本文件里的函数名**。
+
 ```
-Agent(
-  description: "开发工程师：实现用户管理模块",
-  prompt: "<角色 persona> + 具体任务描述",
-  isolation: "worktree"
+Task(
+  description: "开发工程师：订单查询分页",
+  prompt: "<开发工程师 persona>\n\n任务：……\n写域：……\n产物：……",
+  isolation: "worktree"   // 当前版本支持隔离工作区时加；不支持就删掉
 )
 ```
 
-### 多任务并行（workflow，推荐）
-```javascript
-export const meta = {
-  name: 'dev-phase',
-  description: '开发工程师执行代码实现',
-  phases: [ { title: '开发', detail: '代码实现 + 单元测试' } ]
-}
+## 关键差异：不能续聊
 
-phase('开发')
-const devResults = await parallel(TASKS.map(task => () =>
-  agent(`<角色 persona>\n实现以下功能...`, {
-    label: `dev:${task.name}`,
-    phase: '开发',
-    isolation: 'worktree'
-  })
-))
-return devResults
-```
+- Claude Code 的子代理**执行一次就结束**，没有 `send_message` 续聊。修复轮次必须**新开**一个子代理，并把上一轮结论、问题清单、改动位置**完整附上**。
+- 因此"常驻队友"在 Claude Code 上不成立，不要承诺"同一个队友第二次更准"。折中办法：修复时把上一轮的最终回复原文（而不是概述）塞进新 prompt。
 
-### 验收（workflow）
-```javascript
-export const meta = {
-  name: 'verify-phase',
-  description: '质量工程师独立验收',
-  phases: [ { title: '验收', detail: '代码质量检查' } ]
-}
+## 并行
 
-phase('验收')
-const verifyResults = await parallel(TASKS.map(task => () =>
-  agent(`<质量工程师 persona>\n检查以下改动...`, {
-    label: `verify:${task.name}`,
-    phase: '验收',
-    isolation: 'worktree'
-  })
-))
-return verifyResults
-```
+- 在**同一条消息里发多个子代理调用** = 并行；分多条消息 = 串行。要并行就一次发完。
+- 没有 workflow 脚本引擎（`parallel()` / `pipeline()` 之类不存在），编排只能靠"一次多发 + 主 agent 汇总"。
+- 子代理之间不共享内存，只共享文件系统。共享事实必须落盘（`contracts/`）。
 
-### 询问用户轮数 / 澄清（Claude 的 AskUserQuestion）
-```
-AskUserQuestion(question: "验收已用完全部轮数，是否再增加10轮？")
-```
+## 隔离
 
-## 注意
-- `isolation: "worktree"` 让每个子代理在独立工作区，避免互相污染。
-- 子代理用 toDoWrite 维护进度，主 agent 用 `log()` 汇报状态。
-- 能并行就并行（worktree 隔离 + parallel），主 agent 只做调度。
+- 支持 `isolation: "worktree"` 的版本：并行写安全，但**合并要主 agent 做**（每个 worktree 一份 diff）。
+- 不支持的版本：共享工作区，必须按写域串行，或只让一个子代理写。
+- 子代理可能默认不能再派子代理（看 `maxDepth` 设置），别设计三层结构。
+
+## 其他工具名
+
+- 问用户：`AskUserQuestion`（不是 `ask_user_question`）。
+- 进度清单：`TodoWrite`（不是 `todo_write`）。
+- 没有 `log()`：进度写在正文里，或用 `TaskOutput` 读子代理输出（如果版本有）。
+
+## 降级
+
+如果当前会话连子代理工具都没有（纯对话模式）：**不要假装开团队**。直接告诉用户"当前环境不支持子代理，团队模式无法执行"，然后用单 agent 按角色顺序自己走一遍流程，并明确标注这是降级执行。
